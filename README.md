@@ -92,13 +92,23 @@ Create a **Cobra CXM WEB CONNECT API** credential:
 | **Base URL** | Server URL including protocol and port, e.g. `https://cobra.example.com:8443`. Do **not** append `/api` — the nodes do that. |
 | **User Name** | cobra user name. |
 | **Password** | Password of that cobra user. |
+| **API Key** | API key of the cobra server — see below. |
 | **Ignore SSL Issues** | Enable only if the server uses a self-signed certificate. |
+
+### API key
+
+cobra CXM WEB CONNECT expects an API key alongside the user name and password. The nodes
+send it as an `ApiKey` header, both on the token request and on every subsequent call.
+
+> **Upgrading from 0.2.x:** the API key became a required field in 0.3.0. Open your existing
+> cobra credential once, fill it in and save — otherwise the nodes report the credential as
+> incomplete.
 
 ### How authentication works
 
-cobra does not use static API keys. The credential posts your user name and password to
-`POST /api/Token` and receives a JWT bearer token, which is then sent as
-`Authorization: Bearer <token>` on every request.
+The credential posts your user name and password to `POST /api/Token` and receives a JWT
+bearer token, which is then sent as `Authorization: Bearer <token>` on every request. Where
+an API key is configured, it accompanies both as an `ApiKey` header.
 
 **cobra bearer tokens are short-lived — roughly two minutes**, and there is no refresh token.
 This is handled for you: n8n caches the token and automatically requests a new one whenever a

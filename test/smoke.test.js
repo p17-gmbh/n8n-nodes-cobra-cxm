@@ -87,6 +87,73 @@ async function main() {
 		assert.strictEqual(seen.skipSslCertificateValidation, true);
 	});
 
+	await test('credential: API key travels as the ApiKey header on the token request', async () => {
+		const cred = new CobraCxmApi();
+		let seen;
+		const helper = {
+			helpers: {
+				httpRequest: async (opts) => {
+					seen = opts;
+					return { success: true, token: 'JWT123' };
+				},
+			},
+		};
+		await cred.preAuthentication.call(helper, {
+			baseUrl: 'https://cobra.example.com:8443',
+			userName: 'alice',
+			password: 'secret',
+			apiKey: '  KEY-123  ',
+		});
+		assert.strictEqual(seen.headers.ApiKey, 'KEY-123', 'must be trimmed and sent as a header');
+		// The cobra TokenRequest schema is additionalProperties:false, so the key must not
+		// end up in the body or the server rejects the whole request.
+		assert.deepStrictEqual(seen.body, { userName: 'alice', password: 'secret' });
+	});
+
+	await test('credential: no ApiKey header when no key is configured', async () => {
+		const cred = new CobraCxmApi();
+		let seen;
+		const helper = {
+			helpers: {
+				httpRequest: async (opts) => {
+					seen = opts;
+					return { success: true, token: 'JWT123' };
+				},
+			},
+		};
+		for (const creds of [
+			{ baseUrl: 'https://x', userName: 'a', password: 'b' },
+			{ baseUrl: 'https://x', userName: 'a', password: 'b', apiKey: '' },
+			{ baseUrl: 'https://x', userName: 'a', password: 'b', apiKey: '   ' },
+		]) {
+			seen = undefined;
+			await cred.preAuthentication.call(helper, creds);
+			assert.ok(
+				seen.headers === undefined || seen.headers.ApiKey === undefined,
+				`no empty ApiKey header for ${JSON.stringify(creds.apiKey)}`,
+			);
+		}
+	});
+
+	await test('credential: authenticate adds Bearer, and ApiKey only when set', async () => {
+		const cred = new CobraCxmApi();
+
+		const withKey = await cred.authenticate(
+			{ sessionToken: 'JWT9', apiKey: 'KEY-123' },
+			{ url: 'https://x/api/Adressen', headers: { Accept: 'application/json' } },
+		);
+		assert.strictEqual(withKey.headers.Authorization, 'Bearer JWT9');
+		assert.strictEqual(withKey.headers.ApiKey, 'KEY-123');
+		assert.strictEqual(withKey.headers.Accept, 'application/json', 'existing headers survive');
+
+		const withoutKey = await cred.authenticate(
+			{ sessionToken: 'JWT9' },
+			{ url: 'https://x/api/Adressen' },
+		);
+		assert.strictEqual(withoutKey.headers.Authorization, 'Bearer JWT9');
+		assert.strictEqual(withoutKey.headers.ApiKey, undefined, 'must stay absent, not empty');
+	});
+
 	await test('credential: preAuthentication throws when success is false', async () => {
 		const cred = new CobraCxmApi();
 		const helper = { helpers: { httpRequest: async () => ({ success: false, token: null }) } };
@@ -96,13 +163,18 @@ async function main() {
 		);
 	});
 
-	await test('credential: auth header + test request are declared', async () => {
+	await test('credential: shape is declared as n8n expects', async () => {
 		const cred = new CobraCxmApi();
 		assert.strictEqual(cred.name, 'cobraCxmApi');
-		assert.strictEqual(cred.authenticate.properties.headers.Authorization, '=Bearer {{$credentials.sessionToken}}');
+		assert.strictEqual(typeof cred.authenticate, 'function', 'function form, so ApiKey can be conditional');
 		assert.strictEqual(cred.test.request.url, '/api/Health');
 		const names = cred.properties.map((p) => p.name);
-		assert.ok(names.includes('sessionToken'), 'sessionToken property must exist for preAuthentication');
+		for (const required of ['baseUrl', 'userName', 'password', 'apiKey', 'sessionToken']) {
+			assert.ok(names.includes(required), `property "${required}" is missing`);
+		}
+		const apiKey = cred.properties.find((p) => p.name === 'apiKey');
+		assert.strictEqual(apiKey.required, true, 'API key is mandatory from 0.3.0 on');
+		assert.strictEqual(apiKey.typeOptions.password, true, 'API key must be masked');
 	});
 
 	// ------------------------------------------------ pure helpers

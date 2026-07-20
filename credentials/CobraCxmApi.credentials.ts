@@ -1,11 +1,12 @@
 import type {
-	IAuthenticateGeneric,
+	IAuthenticate,
 	ICredentialDataDecryptedObject,
 	ICredentialTestRequest,
 	ICredentialType,
 	Icon,
 	IDataObject,
 	IHttpRequestHelper,
+	IHttpRequestOptions,
 	INodeProperties,
 } from 'n8n-workflow';
 
@@ -54,6 +55,16 @@ export class CobraCxmApi implements ICredentialType {
 			required: true,
 			description: 'Password of the cobra user',
 		},
+		{
+			displayName: 'API Key',
+			name: 'apiKey',
+			type: 'string',
+			typeOptions: { password: true },
+			default: '',
+			required: true,
+			description:
+				'API key of the cobra CXM WEB CONNECT server, sent as the "ApiKey" header on the token request and on every subsequent call',
+		},
 		// eslint-disable-next-line @n8n/community-nodes/credential-password-field -- a boolean switch, not a secret; masking it would hide its own state from the user
 		{
 			displayName: 'Ignore SSL Issues (Insecure)',
@@ -78,16 +89,20 @@ export class CobraCxmApi implements ICredentialType {
 	];
 
 	/**
-	 * cobra CXM WEB CONNECT does not accept static API keys. A bearer token is requested
-	 * from POST /api/Token with user name and password. The token is short-lived (the
-	 * cobra documentation shows a lifetime of roughly two minutes), so n8n calls this
-	 * method again whenever a request comes back as 401.
+	 * A bearer token is requested from POST /api/Token with user name and password. The
+	 * token is short-lived (the cobra documentation shows a lifetime of roughly two
+	 * minutes), so n8n calls this method again whenever a request comes back as 401.
+	 *
+	 * Servers configured for API key authorisation additionally expect the key in an
+	 * "ApiKey" header. It cannot travel in the body: the cobra TokenRequest schema
+	 * declares "additionalProperties: false", so an extra body field is rejected.
 	 */
 	async preAuthentication(
 		this: IHttpRequestHelper,
 		credentials: ICredentialDataDecryptedObject,
 	): Promise<IDataObject> {
 		const baseUrl = (credentials.baseUrl as string).replace(/\/+$/, '');
+		const apiKey = ((credentials.apiKey as string | undefined) ?? '').trim();
 
 		const response = (await this.helpers.httpRequest({
 			method: 'POST',
@@ -96,26 +111,39 @@ export class CobraCxmApi implements ICredentialType {
 				userName: credentials.userName,
 				password: credentials.password,
 			},
+			...(apiKey !== '' ? { headers: { ApiKey: apiKey } } : {}),
 			json: true,
 			skipSslCertificateValidation: credentials.allowUnauthorizedCerts as boolean,
 		})) as ITokenResponse;
 
 		if (response?.success !== true || !response?.token) {
 			throw new Error(
-				'cobra CXM WEB CONNECT did not return a bearer token. Check the user name, the password and the licence status of the server.',
+				'cobra CXM WEB CONNECT did not return a bearer token. Check the user name, the password, the API key and the licence status of the server.',
 			);
 		}
 
 		return { sessionToken: response.token };
 	}
 
-	authenticate: IAuthenticateGeneric = {
-		type: 'generic',
-		properties: {
-			headers: {
-				Authorization: '=Bearer {{$credentials.sessionToken}}',
-			},
-		},
+	/**
+	 * The function form is used instead of the declarative one so the "ApiKey" header can
+	 * be omitted entirely when no key is configured. A declarative header would always be
+	 * sent and would resolve to an empty string for the many installations that do not
+	 * use API key authorisation.
+	 */
+	authenticate: IAuthenticate = async (
+		credentials: ICredentialDataDecryptedObject,
+		requestOptions: IHttpRequestOptions,
+	): Promise<IHttpRequestOptions> => {
+		const apiKey = ((credentials.apiKey as string | undefined) ?? '').trim();
+
+		requestOptions.headers = {
+			...requestOptions.headers,
+			Authorization: `Bearer ${credentials.sessionToken as string}`,
+			...(apiKey !== '' ? { ApiKey: apiKey } : {}),
+		};
+
+		return requestOptions;
 	};
 
 	/**
