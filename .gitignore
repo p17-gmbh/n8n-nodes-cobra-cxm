@@ -1,6 +1,10 @@
 node_modules/
 dist/
 *.tgz
+
+# Never let credential exports reach a public repository.
+credentials.zip
+*.credentials.json
 npm-debug.log*
 yarn-error.log*
 .DS_Store
