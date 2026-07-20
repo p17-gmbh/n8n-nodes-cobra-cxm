@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-cobra-cxm",
-	"version": "0.2.2",
+	"version": "1.0.0",
 	"description": "n8n community nodes for cobra CXM WEB CONNECT (cobra Classic) — read, create, update and delete cobra records, search by mail/phone, manage keywords, documents and images.",
 	"license": "MIT",
 	"homepage": "https://github.com/p17-gmbh/n8n-nodes-cobra-cxm",
