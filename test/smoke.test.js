@@ -63,21 +63,20 @@ function makeExecuteContext({ params, httpResponses, items }) {
 
 async function main() {
 	// ------------------------------------------------ credential
+	const okToken = (opts, capture) => {
+		if (capture) capture(opts);
+		return { body: { success: true, token: 'JWT123' }, statusCode: 200 };
+	};
+
 	await test('credential: preAuthentication returns the bearer token', async () => {
 		const cred = new CobraCxmApi();
 		let seen;
-		const helper = {
-			helpers: {
-				httpRequest: async (opts) => {
-					seen = opts;
-					return { success: true, token: 'JWT123' };
-				},
-			},
-		};
+		const helper = { helpers: { httpRequest: async (opts) => okToken(opts, (o) => (seen = o)) } };
 		const out = await cred.preAuthentication.call(helper, {
 			baseUrl: 'https://cobra.example.com:8443/',
 			userName: 'alice',
 			password: 'secret',
+			apiKey: 'KEY-1',
 			allowUnauthorizedCerts: true,
 		});
 		assert.deepStrictEqual(out, { sessionToken: 'JWT123' });
@@ -85,19 +84,41 @@ async function main() {
 		assert.strictEqual(seen.method, 'POST');
 		assert.deepStrictEqual(seen.body, { userName: 'alice', password: 'secret' });
 		assert.strictEqual(seen.skipSslCertificateValidation, true);
+		assert.strictEqual(seen.ignoreHttpStatusErrors, true, 'reads the status instead of throwing a bare 401');
+	});
+
+	await test('credential: preAuthentication demands an API key up front', async () => {
+		const cred = new CobraCxmApi();
+		let called = false;
+		const helper = { helpers: { httpRequest: async () => ((called = true), okToken({})) } };
+		await assert.rejects(
+			() => cred.preAuthentication.call(helper, { baseUrl: 'https://x', userName: 'a', password: 'b', apiKey: '  ' }),
+			/No API key is set/,
+		);
+		assert.strictEqual(called, false, 'must not even hit the network without a key');
+	});
+
+	await test('credential: a 401 token response gives an actionable message, not a bare code', async () => {
+		const cred = new CobraCxmApi();
+		const helper = {
+			helpers: { httpRequest: async () => ({ body: { success: false }, statusCode: 401 }) },
+		};
+		await assert.rejects(
+			() =>
+				cred.preAuthentication.call(helper, {
+					baseUrl: 'https://x',
+					userName: 'a',
+					password: 'b',
+					apiKey: 'wrong',
+				}),
+			/token request was rejected with 401/,
+		);
 	});
 
 	await test('credential: API key travels as the ApiKey header on the token request', async () => {
 		const cred = new CobraCxmApi();
 		let seen;
-		const helper = {
-			helpers: {
-				httpRequest: async (opts) => {
-					seen = opts;
-					return { success: true, token: 'JWT123' };
-				},
-			},
-		};
+		const helper = { helpers: { httpRequest: async (opts) => okToken(opts, (o) => (seen = o)) } };
 		await cred.preAuthentication.call(helper, {
 			baseUrl: 'https://cobra.example.com:8443',
 			userName: 'alice',
@@ -108,31 +129,6 @@ async function main() {
 		// The cobra TokenRequest schema is additionalProperties:false, so the key must not
 		// end up in the body or the server rejects the whole request.
 		assert.deepStrictEqual(seen.body, { userName: 'alice', password: 'secret' });
-	});
-
-	await test('credential: no ApiKey header when no key is configured', async () => {
-		const cred = new CobraCxmApi();
-		let seen;
-		const helper = {
-			helpers: {
-				httpRequest: async (opts) => {
-					seen = opts;
-					return { success: true, token: 'JWT123' };
-				},
-			},
-		};
-		for (const creds of [
-			{ baseUrl: 'https://x', userName: 'a', password: 'b' },
-			{ baseUrl: 'https://x', userName: 'a', password: 'b', apiKey: '' },
-			{ baseUrl: 'https://x', userName: 'a', password: 'b', apiKey: '   ' },
-		]) {
-			seen = undefined;
-			await cred.preAuthentication.call(helper, creds);
-			assert.ok(
-				seen.headers === undefined || seen.headers.ApiKey === undefined,
-				`no empty ApiKey header for ${JSON.stringify(creds.apiKey)}`,
-			);
-		}
 	});
 
 	await test('credential: authenticate adds Bearer, and ApiKey only when set', async () => {
@@ -156,9 +152,17 @@ async function main() {
 
 	await test('credential: preAuthentication throws when success is false', async () => {
 		const cred = new CobraCxmApi();
-		const helper = { helpers: { httpRequest: async () => ({ success: false, token: null }) } };
+		const helper = {
+			helpers: { httpRequest: async () => ({ body: { success: false, token: null }, statusCode: 200 }) },
+		};
 		await assert.rejects(
-			() => cred.preAuthentication.call(helper, { baseUrl: 'https://x', userName: 'a', password: 'b' }),
+			() =>
+				cred.preAuthentication.call(helper, {
+					baseUrl: 'https://x',
+					userName: 'a',
+					password: 'b',
+					apiKey: 'KEY-1',
+				}),
 			/did not return a bearer token/,
 		);
 	});

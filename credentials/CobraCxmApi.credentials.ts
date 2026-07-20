@@ -104,25 +104,46 @@ export class CobraCxmApi implements ICredentialType {
 		const baseUrl = (credentials.baseUrl as string).replace(/\/+$/, '');
 		const apiKey = ((credentials.apiKey as string | undefined) ?? '').trim();
 
-		const response = (await this.helpers.httpRequest({
+		if (apiKey === '') {
+			throw new Error(
+				'No API key is set on the cobra credential. Open the credential, fill in the API Key field and save it. ' +
+					'(Credentials created before version 0.2.2 have no API key yet.)',
+			);
+		}
+
+		// The status is read explicitly instead of letting a 401 throw a bare
+		// "Request failed with status code 401", so a rejected token request produces a
+		// message that points at the real cause and is clearly distinct from a later
+		// failure on a data endpoint.
+		const { body, statusCode } = (await this.helpers.httpRequest({
 			method: 'POST',
 			url: `${baseUrl}/api/Token`,
 			body: {
 				userName: credentials.userName,
 				password: credentials.password,
 			},
-			...(apiKey !== '' ? { headers: { ApiKey: apiKey } } : {}),
+			headers: { ApiKey: apiKey },
 			json: true,
 			skipSslCertificateValidation: credentials.allowUnauthorizedCerts as boolean,
-		})) as ITokenResponse;
+			returnFullResponse: true,
+			ignoreHttpStatusErrors: true,
+		})) as { body: ITokenResponse; statusCode: number };
 
-		if (response?.success !== true || !response?.token) {
+		if (statusCode === 401) {
 			throw new Error(
-				'cobra CXM WEB CONNECT did not return a bearer token. Check the user name, the password, the API key and the licence status of the server.',
+				'The cobra token request was rejected with 401. The API key, the user name or the password is wrong, ' +
+					'or the server licence is invalid.',
 			);
 		}
 
-		return { sessionToken: response.token };
+		if (statusCode < 200 || statusCode >= 300 || body?.success !== true || !body?.token) {
+			throw new Error(
+				`cobra CXM WEB CONNECT did not return a bearer token (HTTP ${statusCode}). ` +
+					'Check the user name, the password, the API key and the licence status of the server.',
+			);
+		}
+
+		return { sessionToken: body.token };
 	}
 
 	/**
