@@ -1,6 +1,13 @@
 # n8n requires nodes submitted for verification to be published from GitHub Actions
-# with an npm provenance statement. Configure this repository as a Trusted Publisher
-# on npmjs.com, then push a version tag to release.
+# with an npm provenance statement. Provenance needs no Trusted Publisher setup — an
+# NPM_TOKEN repository secret is enough, as long as this job keeps "id-token: write",
+# runs on a GitHub-hosted runner, and package.json carries a public "repository" URL
+# that matches this repository exactly (the comparison is case-sensitive).
+#
+# Trusted Publishing is the token-free alternative, but it is configured per package
+# on npmjs.com and therefore only available once the package has been published once.
+#
+# Release by pushing a version tag, which "npm run release" does for you.
 name: Publish
 
 on:
@@ -33,8 +40,14 @@ jobs:
         run: npm ci
 
       - name: Release
+        # Steps run under "bash -e", so a bare "[ -n ... ] && ..." would abort the whole
+        # step when the secret is unset instead of falling through to Trusted Publishing.
         run: |
-          [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          if [ -n "$NPM_TOKEN" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          else
+            echo "No NPM_TOKEN set — relying on Trusted Publishing."
+          fi
           npm run release
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
