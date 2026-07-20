@@ -19,7 +19,10 @@ export class CobraCxmApi implements ICredentialType {
 
 	displayName = 'Cobra CXM WEB CONNECT API';
 
-	icon: Icon = { light: 'file:../icons/cobra.svg', dark: 'file:../icons/cobra.dark.svg' };
+	icon: Icon = {
+		light: 'file:../icons/p17-crm-logo.svg',
+		dark: 'file:../icons/p17-crm-logo.dark.svg',
+	};
 
 	documentationUrl = 'https://webconnect.cobra-hilfe.de/docs/webconnect/Authentifizierung';
 

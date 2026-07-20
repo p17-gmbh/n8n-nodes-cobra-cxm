@@ -23,7 +23,7 @@ export class CobraTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'cobra CXM Trigger',
 		name: 'cobraTrigger',
-		icon: { light: 'file:cobra.svg', dark: 'file:cobra.dark.svg' },
+		icon: { light: 'file:p17.svg', dark: 'file:p17.dark.svg' },
 		group: ['trigger'],
 		version: 1,
 		subtitle: '={{$parameter["event"]}}',
